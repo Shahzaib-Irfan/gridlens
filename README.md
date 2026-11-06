@@ -42,7 +42,7 @@ IncidentSummary ── title, severity, probable cause, plain-English summary, e
 
 ```bash
 pip install -e ".[dev]"
-pytest                                   # 15 tests, no model needed
+pytest                                   # 16 tests, no model needed
 
 gridlens generate data/events.jsonl      # synthetic stream + meter registry
 gridlens summarize data/events.jsonl --registry data/registry.json -p baseline
@@ -50,7 +50,7 @@ gridlens summarize data/events.jsonl --registry data/registry.json -p baseline
 # With a local model (https://ollama.com):
 ollama pull llama3.1:8b
 gridlens summarize data/events.jsonl --registry data/registry.json -p ollama
-gridlens eval -p baseline -p ollama:llama3.1:8b
+gridlens eval -p baseline -p ollama:llama3.1:8b -p hybrid:ollama:llama3.1:8b
 
 # Hosted models
 ANTHROPIC_API_KEY=... gridlens eval -p anthropic
@@ -78,7 +78,30 @@ transformer faults, single-meter outages, tampering, voltage quality, communicat
 Scored: cause accuracy, severity accuracy, accuracy on hard cases, grounded rate, fallback rate, mean
 attempts and latency.
 
-EVAL_RESULTS_PLACEHOLDER
+### Results (run on CPU in a sandbox, Qwen2.5-3B-Instruct Q4 via llama.cpp)
+
+| setup | cause accuracy | severity accuracy | hard cases | grounded | fell back |
+|---|---|---|---|---|---|
+| rules only (`baseline`) | 89% | 89% | 1 / 3 | 100% | 0% |
+| small LLM only (`openai` → Qwen2.5-3B) | 63% | 58% | 2 / 3 | 100% | 37% |
+| **rules + LLM for what rules can't classify (`hybrid:…`)** | **95%** | **89%** | 2 / 3 | 100% | 5% |
+
+What the evals changed:
+
+1. **The small model alone lost to the rules.** It over-predicted `transformer_fault`, calling tampering,
+   voltage sags and a comms blip transformer faults. But it got two of the three hard cases right, where
+   the rules returned `unknown`.
+2. **The grounding checker did its job.** Every accepted answer was consistent with the facts; when the
+   model kept failing, the repair loop gave up and the rule-based report shipped instead (37% of cases).
+3. **So the design changed to a router.** `hybrid:` lets the rules answer anything they can classify and
+   sends only `unknown` incidents to the model: 95% accuracy, and the model is called on 2 of 19 incidents
+   instead of all of them.
+4. **The first run also exposed a prompt bug.** The model was handed every meter ID and then told not to
+   list more than five. Large incidents now get the count only (`render_facts`).
+
+A 3B model on two CPU cores is the floor, not the target. Full per-case tables are in `data/eval_*.md`;
+rerun with `gridlens eval -p baseline -p ollama:llama3.1:8b -p hybrid:ollama:llama3.1:8b` on a GPU.
+
 
 ## Layout
 

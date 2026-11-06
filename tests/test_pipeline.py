@@ -159,3 +159,18 @@ def test_large_incidents_do_not_send_meter_ids_to_the_model():
     sc = next(s for s in scenarios() if s.name == "feeder_outage_0")
     [f] = group_incidents(sc.events, meters_per_transformer=sc.registry)
     assert "MTR-" not in render_facts(f)
+
+
+def test_hybrid_uses_rules_when_confident_and_model_otherwise():
+    from gridlens.llm import Hybrid
+
+    confident = two_meter_incident()  # rules classify this as a transformer fault
+    p = ScriptedProvider([good_json()])
+    r = summarize_incident(confident, Hybrid(p))
+    assert r.provider.endswith(":rules") and p.calls == []
+
+    sc = next(s for s in scenarios() if s.name == "hard_partial_phase_loss")  # rules return unknown
+    [f] = group_incidents(sc.events, meters_per_transformer=sc.registry)
+    p = ScriptedProvider([good_json(summary="4 meters on one phase lost power.", meters_mentioned=[])])
+    r = summarize_incident(f, Hybrid(p))
+    assert len(p.calls) == 1 and not r.fell_back

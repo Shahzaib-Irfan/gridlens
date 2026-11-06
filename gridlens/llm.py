@@ -119,11 +119,31 @@ class ScriptedProvider:
         return self.responses.pop(0)
 
 
+class Hybrid:
+    """Route by confidence: rules answer what they can classify, the model gets only the rest.
+
+    The evals showed why: a small local model beat the rules on ambiguous incidents but lost
+    to them on routine ones, so each is used where it is stronger.
+    """
+
+    def __init__(self, inner: Provider):
+        self.inner = inner
+        self.name = f"hybrid({inner.name})"
+
+    def complete(self, system: str, user: str) -> str:
+        return self.inner.complete(system, user)
+
+
 def get_provider(spec: str) -> Provider | None:
-    """`ollama`, `ollama:qwen2.5:7b`, `anthropic`, `openai`, or `baseline` (returns None)."""
+    """`ollama`, `ollama:qwen2.5:7b`, `anthropic`, `openai`, `hybrid:<any of those>`, or `baseline` (None)."""
     kind, _, model = spec.partition(":")
     if kind == "baseline":
         return None
+    if kind == "hybrid":
+        inner = get_provider(model or "ollama")
+        if inner is None:
+            raise ValueError("hybrid needs a model provider, e.g. hybrid:ollama")
+        return Hybrid(inner)
     if kind == "ollama":
         return OllamaProvider(model or None)
     if kind == "anthropic":

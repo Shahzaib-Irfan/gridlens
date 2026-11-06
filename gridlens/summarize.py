@@ -15,8 +15,8 @@ import httpx
 from pydantic import ValidationError
 
 from . import baseline
-from .llm import Provider
-from .models import IncidentFacts, IncidentSummary, SummaryResult
+from .llm import Hybrid, Provider
+from .models import Cause, IncidentFacts, IncidentSummary, SummaryResult
 
 SYSTEM = """You are an operations analyst for an electricity distribution utility.
 You turn smart-meter incident facts into a short incident report for a field operations team.
@@ -85,6 +85,14 @@ def summarize_incident(f: IncidentFacts, provider: Provider | None, max_attempts
         issues = check_grounding(f, s)
         return SummaryResult(facts=f, summary=s, provider="baseline", grounded=not issues,
                              grounding_issues=issues, latency_ms=(time.perf_counter() - t0) * 1000)
+
+    if isinstance(provider, Hybrid):
+        cause, _ = baseline.classify(f)
+        if cause is not Cause.unknown:
+            s = baseline.summarize(f)
+            issues = check_grounding(f, s)
+            return SummaryResult(facts=f, summary=s, provider=f"{provider.name}:rules", grounded=not issues,
+                                 grounding_issues=issues, latency_ms=(time.perf_counter() - t0) * 1000)
 
     user = render_facts(f)
     feedback: list[str] = []
